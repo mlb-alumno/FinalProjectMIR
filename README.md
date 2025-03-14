@@ -47,13 +47,29 @@ working
 │   └── put here the .jams for testing
 ```
 
-## Data pump
+## Data preparation
 
-Open the 01 data pump notebook and run the code. This will create the .npz files and the pump.pkl file in the chords folder.
+### Audios
+put your mp3 files in the audio folder inside your working path
+
+### Jam files
+run the ``code/create_jam_files.py`` script to create an example .jam file, put that file in the annotations folder inside your working path
+
+TODO: load jams and mp3 from jazznet
+
+## Data pump    
+
+Open the 01 ``new_notebooks/Data_pump.ipynb`` notebook and run the code. This will create the .npz files and the pump.pkl file in the chords folder.
 
 ## Training
 
 Run:
+
+```bash
+cd code
+```
+
+and then
 
 ```bash
 python train_deep.py --epochs 2 --epoch-size 10 --working /Users/your_user/working/chords
