@@ -26,7 +26,7 @@ import sys
 from sklearn.preprocessing import _label
 
 sys.modules['sklearn.preprocessing.label'] = _label
-folder = "/Users/manuel/working/chords/pump"  # adjust to your .npz location
+folder = os.path.join(os.environ['HOME'],'working', 'chords', 'pump')  # adjust to your .npz location
 for fname in glob.glob(os.path.join(folder, "*.npz")):
     data = np.load(fname)
     new_data = {}
@@ -37,6 +37,31 @@ for fname in glob.glob(os.path.join(folder, "*.npz")):
 
     # Overwrite the same file, but now with slash-free keys
     np.savez(fname, **new_data)
+
+class CustomGenerator:
+    def __init__(self, mux, input_shape, output_shape, dtype=tf.float32):
+        self.mux = mux
+        self.input_shape = input_shape  # Define expected input shape
+        self.output_shape = output_shape  # Define expected output shape
+        self.dtype = dtype  # Default dtype for TensorFlow Dataset
+
+    def __iter__(self):
+        return self.generator()
+
+    def generator(self):
+        for item in self.mux.iterate():
+            # Convert Python lists to NumPy arrays (TensorFlow needs this)
+            x = np.array(item['cqt_mag'], dtype=np.float32)  # Ensure float32 dtype
+            y = np.array(item['chord_tag_chord'], dtype=np.int32)  # Ensure int32 labels
+            yield x, y
+
+    def as_tf_dataset(self, batch_size):
+        output_signature = (
+            tf.TensorSpec(shape=self.input_shape, dtype=self.dtype),  # Input shape
+            tf.TensorSpec(shape=self.output_shape, dtype=tf.int32)   # Label shape
+        )
+        return tf.data.Dataset.from_generator(self.generator, output_signature=output_signature).batch(batch_size)
+
 
 
 def process_arguments(args):
@@ -56,7 +81,7 @@ def process_arguments(args):
 
     parser.add_argument('--reference-path', dest='refs', type=str,
                         default=os.path.join(os.environ['HOME'],
-                                             'data', 'eric_chords', 'references_v2'),
+                                             'working', 'reference_annotations'),
                         help='Path to reference annotations')
 
     parser.add_argument('--working', dest='working', type=str,
@@ -91,11 +116,11 @@ def process_arguments(args):
 
     parser.add_argument('--epochs', dest='epochs', type=int,
                         default=100,
-                        help='Maximum number of epochs to train for')
+                        help='Maximum number of epochs to train for') # Originally: 100
 
     parser.add_argument('--epoch-size', dest='epoch_size', type=int,
                         default=512,
-                        help='Number of batches per epoch')
+                        help='Number of batches per epoch') # Originally: 512
 
     parser.add_argument('--validation-size', dest='validation_size', type=int,
                         default=1024,
@@ -207,37 +232,28 @@ def data_generator(
     # Produce the raw item-level generator
     mux_gen = mux.iterate(max_iter=max_iter)
 
-    # Now buffer into minibatches of size `batch_size`
-    # buffer_stream yields dicts that have arrays of shape (batch_size, ...)
-    # for each key
-    if batch_size > 1:
-        buffered_gen = buffer_stream(mux_gen, batch_size)
-        return pescador.Streamer(buffered_gen)
-    else:
-        return pescador.Streamer(lambda: mux_gen)
+
+    input_shape = (None, 216, 1)  
+    output_shape = (None,)
+
+    return CustomGenerator(mux,input_shape,output_shape)
 
 
 
 def keras_tuples(gen, inputs=None, outputs=None):
+    """
+    Convert a generator into Keras-compatible (input, output) tuples.
 
-    if isinstance(inputs, six.string_types):
-        if isinstance(outputs, six.string_types):
-            # One input, one output
-            for datum in gen:
-                yield (datum[inputs], datum[outputs])
-        else:
-            # One input, multi outputs
-            for datum in gen:
-                yield (datum[inputs], [datum[o] for o in outputs])
-    else:
-        if isinstance(outputs, six.string_types):
-            for datum in gen:
-                yield ([datum[i] for i in inputs], datum[outputs])
-        else:
-            # One input, multi outputs
-            for datum in gen:
-                yield ([datum[i] for i in inputs],
-                       [datum[o] for o in outputs])
+    Args:
+        gen: A generator yielding tuples (x, y).
+        inputs: Not used (kept for compatibility).
+        outputs: Not used (kept for compatibility).
+
+    Yields:
+        Tuples (x, y) for training in Keras.
+    """
+    for x, y in gen:  # ✅ Unpacking tuple directly
+        yield (x, y)
 
 
 def estimate_class_annotation(ann, op, quality_only):
@@ -385,7 +401,7 @@ def construct_model(pump, structured):
         tag = K.layers.TimeDistributed(p0, name='chord_tag')(codec)
 
         model = K.models.Model(x, [tag, pc_p, root_p, bass_p])
-        OUTPUTS = ['chord_tag/chord',
+        OUTPUTS = ['chord_tag_chord',
                    'chord_struct/pitch',
                    'chord_struct/root',
                    'chord_struct/bass']
@@ -397,7 +413,7 @@ def construct_model(pump, structured):
         tag = K.layers.TimeDistributed(p0, name='chord_tag')(rnn)
 
         model = K.models.Model(x, [tag])
-        OUTPUTS = ['chord_tag/chord']
+        OUTPUTS = ['chord_tag_chord']
 
     return model, INPUTS, OUTPUTS
 
@@ -549,7 +565,7 @@ def run_experiment(working, refs, max_samples, duration, structured,
     sampler = make_sampler(max_samples, duration, pump, seed)
     
 
-    N_SPLITS = 5
+    N_SPLITS = 1 # originally 5, i think they splitted the data in 5 csv files
 
     for split in range(N_SPLITS):
 
@@ -594,14 +610,14 @@ def run_experiment(working, refs, max_samples, duration, structured,
                                    weights=train_weights,
                                    random_state=seed)
 
-        gen_train = keras_tuples(gen_train(), inputs=inputs, outputs=outputs)
+        gen_train = keras_tuples(iter(gen_train), inputs=inputs, outputs=outputs)
 
         gen_val = data_generator(working,
                                  idx_val['id'].values, sampler, len(idx_val),
                                  batch_size=batch_size,
                                  random_state=seed)
 
-        gen_val = keras_tuples(gen_val(), inputs=inputs, outputs=outputs)
+        gen_val = keras_tuples(iter(gen_val), inputs=inputs, outputs=outputs)
 
         loss = {'chord_tag': 'sparse_categorical_crossentropy'}
         metrics = {'chord_tag': 'sparse_categorical_accuracy'}
