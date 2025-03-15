@@ -29,33 +29,41 @@ Ensure you have a folder structure in your working path as follows:
 
 ```
 working
-├── annotations
-│   └── your .jams files
-├── audio
-│   └── tour .mp3 files
 ├── chords
 │   ├── model_deep
 │   │   ├── (here the final model will be stored)
-│   ├── new_test00.csv (a .csv file with the names of the .jams files you want for test)
-│   ├── new_train00.csv (a .csv file with the names of the .jams files you want for train)
+│   ├── jazznet_test00.csv (a .csv file with the names of the .jams files you want for test)
+│   ├── jazznet_train00.csv (a .csv file with the names of the .jams files you want for train)
 │   ├── pump
-│   │   ├── .npz files (the .npz files will be stored here after using the 01 data pump notebook)
-│   └── pump.pkl (the pump.pkl will be stored here after using the 01 data pump notebook)
+│   │   ├── .npz files (the .npz files will be stored here after using the data pump notebook in new_notebooks/Data_pump.ipynb)
+│   └── pump.pkl (the pump.pkl will be stored here after using the data pump notebook in new_notebooks/Data_pump.ipynb)
 ├── plots
 │   ├── (final plots will be stored here)
-├── reference_annotations
-│   └── put here the .jams for testing
+├── jazznet (here the jazznet dataset will be stored)
+│   ├── clean_dataset
+│   │   ├── jams
+│   │   │   ├── train
+│   │   │   │   ├── jams files (the jams files will be stored here after using the data pump notebook in new_notebooks)
+│   │   │   ├── test 
+│   │   │   │   ├── jams files (the jams files will be stored here after using the data pump notebook in new_notebooks)
+│   │   ├── audios
+│   │   │   ├── train
+│   │   │   │   ├── jams files (the jams files will be stored here after using the data pump notebook in new_notebooks)
+│   │   │   ├── test 
+│   │   │   │   ├── jams files (the jams files will be stored here after using the data pump notebook in new_notebooks)
+│   │   ├── metadata 
+│   │   │   ├── small.csv (a .csv file with the jezznet metadata)
 ```
 
 ## Data preparation
 
-### Audios
-put your mp3 files in the audio folder inside your working path
+### Audios and jam files
 
-### Jam files
-run the ``python jazznet_to_jams.py --working /Users/your_user/working/jazznet --csv_file /Users/your_user/working/jazznet/metadata/small.csv`` script to create the .jams files from the jazznet csv, put that file in the annotations folder inside your working path
+The data pump takes pairs of same name .jams and .wav files, so you need to have the same number of jams and wav files in the jazznet/clean_dataset/jams and jazznet/clean_dataset/audios folders.
 
-TODO: load jams and mp3 from jazznet
+### Modify Jam files
+If you need to change anything from the jams files, you can use the script:
+``python jazznet_to_jams.py --working /Users/your_user/working/jazznet --csv_file /Users/your_user/working/jazznet/metadata/small.csv`` script to create the .jams files from the jazznet .csv, 
 
 ## Data pump    
 
@@ -76,9 +84,16 @@ python train_jazznet.py --epochs 2 --epoch-size 10 --working /Users/your_user/wo
 ```
 Just to test if it runs, then turn up the epochs and epoch size for real training.
 
-## Evaluation
+## Inference 
 
-Run the new/notebook/03 - Results.ipynb notebook. This will create the final plots.
+Run the ``new_notebooks/Inference_notebook.ipynb`` notebook. This will do inference on an example.
+
+## TODO:
+
+- Evaluation at the end of the model training is now broken, something due to annotations being overlaped or something, but inference works!
+- Update the evaluation notebook in notebooks/03 - Results.ipynb to output something cool.
+- See how well it detects inversions.
+
 
 ## References
 
