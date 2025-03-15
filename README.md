@@ -53,7 +53,7 @@ working
 put your mp3 files in the audio folder inside your working path
 
 ### Jam files
-run the ``code/create_jam_files.py`` script to create an example .jam file, put that file in the annotations folder inside your working path
+run the ``python jazznet_to_jams.py --working /Users/your_user/working/jazznet --csv_file /Users/your_user/working/jazznet/metadata/small.csv`` script to create the .jams files from the jazznet csv, put that file in the annotations folder inside your working path
 
 TODO: load jams and mp3 from jazznet
 
@@ -72,7 +72,7 @@ cd code
 and then
 
 ```bash
-python train_deep.py --epochs 2 --epoch-size 10 --working /Users/your_user/working/chords
+python train_jazznet.py --epochs 2 --epoch-size 10 --working /Users/your_user/working/chords --reference-path /Users/your_user/working/jazznet/clean_dataset/jams/test/
 ```
 Just to test if it runs, then turn up the epochs and epoch size for real training.
 
