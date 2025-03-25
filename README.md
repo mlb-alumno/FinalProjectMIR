@@ -61,13 +61,10 @@ working
 
 The data pump takes pairs of same name .jams and .wav files, so you need to have the same number of jams and wav files in the jazznet/clean_dataset/jams and jazznet/clean_dataset/audios folders.
 
-### Modify Jam files
-If you need to change anything from the jams files, you can use the script:
-``python jazznet_to_jams.py --working /Users/your_user/working/jazznet --csv_file /Users/your_user/working/jazznet/metadata/small.csv`` script to create the .jams files from the jazznet .csv, 
 
 ## Data pump    
 
-Open the 01 ``new_notebooks/Data_pump.ipynb`` notebook and run the code. This will create the .npz files and the pump.pkl file in the chords folder.
+Open the 01 ``notebooks/Data_pump.ipynb`` notebook and run the code. This will create the .npz files and the pump.pkl file in the chords folder.
 
 ## Training
 
@@ -80,19 +77,15 @@ cd code
 and then
 
 ```bash
-python train_jazznet.py --epochs 2 --epoch-size 10 --working /Users/your_user/working/chords --reference-path /Users/your_user/working/jazznet/clean_dataset/jams/test/
+python train.py --epochs 2 --epoch-size 10 --working /Users/your_user/working/chords --reference-path /Users/your_user/working/jazznet/clean_dataset/jams/test/
 ```
 Just to test if it runs, then turn up the epochs and epoch size for real training.
 
 ## Inference 
 
-Run the ``new_notebooks/Inference_notebook.ipynb`` notebook. This will do inference on an example.
+The ``notebooks/Training_results.ipynb`` and ``notebooks/Test_results.ipynb`` notebooks contain the results of the training and testing.
 
-## TODO:
-
-- Evaluation at the end of the model training is now broken, something due to annotations being overlaped or something, but inference works!
-- Update the evaluation notebook in notebooks/03 - Results.ipynb to output something cool.
-- See how well it detects inversions.
+Run the ``new_notebooks/Predict_new_sound.ipynb`` notebook to do inference on your own piano audio file.
 
 
 ## References
