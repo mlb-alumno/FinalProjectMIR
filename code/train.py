@@ -22,27 +22,41 @@ from sklearn.preprocessing import _label
 from tqdm import tqdm
 
 sys.modules["sklearn.preprocessing.label"] = _label
-folder = os.path.join(
-    os.environ["HOME"], "working", "chords", "pump"
-)  # adjust to your .npz location
-for fname in glob.glob(os.path.join(folder, "*.npz")):
-    data = np.load(fname)
-    new_data = {}
-    for k in data.keys():
-        new_k = k.replace("/", "_")  # e.g. cqt/mag -> cqt_mag
-        new_data[new_k] = data[k]
-    data.close()
 
-    # Overwrite the same file, but now with slash-free keys
-    np.savez(fname, **new_data)
+
+def remove_slashes_from_npz_keys(folder):
+    """
+    Remove slashes from keys in .npz files within the specified folder.
+
+    Args:
+        folder (str): Path to the folder containing .npz files.
+    """
+    for fname in glob.glob(os.path.join(folder, "*.npz")):
+        data = np.load(fname)
+        new_data = {}
+        for k in data.keys():
+            new_k = k.replace("/", "_")  # e.g. cqt/mag -> cqt_mag
+            new_data[new_k] = data[k]
+        data.close()
+
+        # Overwrite the same file, but now with slash-free keys
+        np.savez(fname, **new_data)
 
 
 class CustomGenerator:
-    def __init__(self, mux, input_shape, output_shape, dtype=tf.float32):
+    def __init__(
+        self,
+        mux,
+        input_shape,
+        output_shape,
+        structured=False,
+        dtype=tf.float32,
+    ):
         self.mux = mux
-        self.input_shape = input_shape  # Define expected input shape
-        self.output_shape = output_shape  # Define expected output shape
-        self.dtype = dtype  # Default dtype for TensorFlow Dataset
+        self.input_shape = input_shape
+        self.output_shape = output_shape
+        self.structured = structured  # Add this flag
+        self.dtype = dtype
 
     def __iter__(self):
         return self.generator()
@@ -50,26 +64,25 @@ class CustomGenerator:
     def generator(self):
         for item in self.mux.iterate():
             # Convert Python lists to NumPy arrays (TensorFlow needs this)
-            x = np.array(
-                item["cqt_mag"], dtype=np.float32
-            )  # Ensure float32 dtype
-            y = np.array(
-                item["chord_tag_chord"], dtype=np.int32
-            )  # Ensure int32 labels
-            yield x, y
+            x = np.array(item["cqt_mag"], dtype=np.float32)
+
+            if self.structured:
+                # Return all necessary outputs for structured training
+                y_tag = np.array(item["chord_tag_chord"], dtype=np.int32)
+                y_pitch = np.array(
+                    item["chord_struct_pitch"], dtype=np.float32
+                )
+                y_root = np.array(item["chord_struct_root"], dtype=np.int32)
+                y_bass = np.array(item["chord_struct_bass"], dtype=np.int32)
+                yield x, (y_tag, y_pitch, y_root, y_bass)
+            else:
+                # Return only chord tags for non-structured training
+                y = np.array(item["chord_tag_chord"], dtype=np.int32)
+                yield x, y
 
     def as_tf_dataset(self, batch_size):
-        output_signature = (
-            tf.TensorSpec(
-                shape=self.input_shape, dtype=self.dtype
-            ),  # Input shape
-            tf.TensorSpec(
-                shape=self.output_shape, dtype=tf.int32
-            ),  # Label shape
-        )
-        return tf.data.Dataset.from_generator(
-            self.generator, output_signature=output_signature
-        ).batch(batch_size)
+        # This function would need to be updated too but isn't used in the fit() call
+        pass
 
 
 def process_arguments(args):
@@ -113,7 +126,7 @@ def process_arguments(args):
         "--working",
         dest="working",
         type=str,
-        default=os.path.join(os.environ["HOME"], "working", "chords"),
+        default=os.path.join(os.environ["HOME"], "working", "jazznet_2"),
         help="Path to working directory",
     )
 
@@ -197,7 +210,7 @@ def process_arguments(args):
         "--early-stopping",
         dest="early_stopping",
         type=int,
-        default=20,
+        default=10,
         help="# epochs without improvement to stop",
     )
 
@@ -260,6 +273,7 @@ def data_generator(
     prune_empty_streams=True,
     random_state=None,
     max_iter=None,
+    structured=False,
 ):
     """
     Generate a data stream from a collection of tracks and a sampler,
@@ -309,7 +323,9 @@ def data_generator(
     input_shape = (None, 216, 1)
     output_shape = (None,)
 
-    return CustomGenerator(mux, input_shape, output_shape)
+    return CustomGenerator(
+        mux, input_shape, output_shape, structured=structured
+    )
 
 
 def keras_tuples(gen, inputs=None, outputs=None):
@@ -472,7 +488,7 @@ def construct_model(pump, structured):
     if structured:
         # 1: pitch class predictor
         pc = K.layers.Dense(
-            pump.fields["chord_struct/pitch"].shape[1], activation="sigmoid"
+            pump.fields["chord_struct_pitch"].shape[1], activation="sigmoid"
         )
 
         pc_p = K.layers.TimeDistributed(pc, name="chord_pitch")(rnn)
@@ -499,9 +515,9 @@ def construct_model(pump, structured):
         model = K.models.Model(x, [tag, pc_p, root_p, bass_p])
         OUTPUTS = [
             "chord_tag_chord",
-            "chord_struct/pitch",
-            "chord_struct/root",
-            "chord_struct/bass",
+            "chord_struct_pitch",
+            "chord_struct_root",
+            "chord_struct_bass",
         ]
     else:
         p0 = K.layers.Dense(
@@ -542,7 +558,7 @@ def make_output_path(
     return outdir
 
 
-def round_observation_times(annotation, precision=2, snap_tol=1e-6):
+def round_observation_times(annotation, precision=10, snap_tol=1e-6):
     """
     Create new Observation objects with times and durations rounded using Decimal
     arithmetic, then force them to be consecutive by snapping boundaries that are
@@ -634,7 +650,12 @@ def score_model(pump, model, idx, working, refs, structured):
 
         ann = pump["chord_tag"].inverse(output)
         ann = round_observation_times(ann)
-        results[item] = jams.eval.chord(jam.annotations["chord", 0], ann)
+
+        ref_ann = round_observation_times(
+            jam.annotations["chord", 0], precision=10
+        )
+
+        results[item] = jams.eval.chord(ref_ann, ann)
 
     return pd.DataFrame.from_dict(results, orient="index")[
         ["root", "thirds", "triads", "tetrads", "mirex", "majmin", "sevenths"]
@@ -752,6 +773,7 @@ def run_experiment(
     seed : int
         Random seed
     """
+    remove_slashes_from_npz_keys(os.path.join(working, "pump"))
 
     # Load the pump
     with open(os.path.join(working, "pump.pkl"), "rb") as fd:
@@ -763,7 +785,7 @@ def run_experiment(
     # Build the sampler
     sampler = make_sampler(max_samples, duration, pump, seed)
 
-    N_SPLITS = 1  # originally 5, i think they splitted the data in 5 csv files
+    N_SPLITS = 5
 
     for split in range(N_SPLITS):
 
@@ -779,7 +801,7 @@ def run_experiment(
 
         # Split the training data into train and validation
         splitter_tv = ShuffleSplit(
-            n_splits=1, test_size=0.25, random_state=seed
+            n_splits=N_SPLITS, test_size=0.25, random_state=seed
         )
         train, val = next(splitter_tv.split(idx_train_))
 
@@ -818,6 +840,7 @@ def run_experiment(
             batch_size=batch_size,
             weights=train_weights,
             random_state=seed,
+            structured=structured,
         )
 
         gen_train = keras_tuples(
@@ -831,6 +854,7 @@ def run_experiment(
             len(idx_val),
             batch_size=batch_size,
             random_state=seed,
+            structured=structured,
         )
 
         gen_val = keras_tuples(iter(gen_val), inputs=inputs, outputs=outputs)
@@ -900,6 +924,7 @@ def run_experiment(
             augmentation=augmentation,
             weights=train_weights,
             steps=epoch_size,
+            structured=structured,
         )
 
         # Fit the model
@@ -912,8 +937,8 @@ def run_experiment(
             callbacks=cb,
         )
 
-        ###
         # Now test the model
+
         # Load the best weights
         model.load_weights(weight_path)
 
