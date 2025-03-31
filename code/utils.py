@@ -5,6 +5,7 @@ from decimal import ROUND_HALF_UP, Decimal
 import jams
 import numpy as np
 
+# the pumpp library hard-codes a slash in cqt/mag, newer versions of keras don't allow the use of / in keys so this functions were written to solve this   
 
 def remove_slashes_from_npz_keys(folder):
     """
