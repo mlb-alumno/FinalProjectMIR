@@ -14,7 +14,7 @@ class DataSequence(Sequence):
         augmentation=False,
         weights=None,
         steps=None,
-        structured=False,  # Add structured parameter
+        structured=False,  # To set it to structured
     ):
         self.working = working
         self.tracks = tracks
