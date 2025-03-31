@@ -22,7 +22,7 @@ def remove_slashes_from_npz_keys(folder):
             new_data[new_k] = data[k]
         data.close()
 
-        # Overwrite the same file, but now with slash-free keys
+        # Overwrites the same file, but now with slash-free keys
         np.savez(fname, **new_data)
 
 
@@ -37,7 +37,7 @@ def rename_slashes_in_op_fields(op):
         for old_key, old_val in op.fields.items():
             new_key = old_key.replace("/", "_")  # e.g. 'cqt/mag' -> 'cqt_mag'
             new_dict[new_key] = old_val
-        # Now overwrite op.fields with slash-free keys
+        # Now overwrites op.fields with slash-free keys
         op.fields = new_dict
 
 
@@ -59,7 +59,7 @@ def rename_slashes_in_pump_opmap(pump):
 
 def round_observation_times(annotation, precision=5, snap_tol=1e-6):
     """
-    Create new Observation objects with times and durations rounded using Decimal
+    Creates new Observation objects with times and durations rounded using Decimal
     arithmetic, then force them to be consecutive by snapping boundaries that are
     within snap_tol.
 
@@ -108,7 +108,7 @@ def round_observation_times(annotation, precision=5, snap_tol=1e-6):
 
     # Convert fixed intervals back to floats with snapping.
     fixed_obs = []
-    # We'll build the new observations, and whenever the gap is below snap_tol, snap them.
+    # Build the new observations, and whenever the gap is below snap_tol, snap them.
     prev_end_float = None
     for start, dur, val, conf in fixed:
         start_float = float(start)
