@@ -7,7 +7,6 @@ import os
 import pickle
 import sys
 from collections import defaultdict
-from decimal import ROUND_HALF_UP, Decimal
 
 import jams
 import keras as K
@@ -16,73 +15,19 @@ import numpy as np
 import pandas as pd
 import pescador
 import tensorflow as tf
+from custom_generator import CustomGenerator
 from datasequence import DataSequence
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import _label
 from tqdm import tqdm
+from utils import (
+    remove_slashes_from_npz_keys,
+    rename_slashes_in_pump_opmap,
+    rename_slashes_in_pump_ops_list,
+    round_observation_times,
+)
 
 sys.modules["sklearn.preprocessing.label"] = _label
-
-
-def remove_slashes_from_npz_keys(folder):
-    """
-    Remove slashes from keys in .npz files within the specified folder.
-
-    Args:
-        folder (str): Path to the folder containing .npz files.
-    """
-    for fname in glob.glob(os.path.join(folder, "*.npz")):
-        data = np.load(fname)
-        new_data = {}
-        for k in data.keys():
-            new_k = k.replace("/", "_")  # e.g. cqt/mag -> cqt_mag
-            new_data[new_k] = data[k]
-        data.close()
-
-        # Overwrite the same file, but now with slash-free keys
-        np.savez(fname, **new_data)
-
-
-class CustomGenerator:
-    def __init__(
-        self,
-        mux,
-        input_shape,
-        output_shape,
-        structured=False,
-        dtype=tf.float32,
-    ):
-        self.mux = mux
-        self.input_shape = input_shape
-        self.output_shape = output_shape
-        self.structured = structured  # Add this flag
-        self.dtype = dtype
-
-    def __iter__(self):
-        return self.generator()
-
-    def generator(self):
-        for item in self.mux.iterate():
-            # Convert Python lists to NumPy arrays (TensorFlow needs this)
-            x = np.array(item["cqt_mag"], dtype=np.float32)
-
-            if self.structured:
-                # Return all necessary outputs for structured training
-                y_tag = np.array(item["chord_tag_chord"], dtype=np.int32)
-                y_pitch = np.array(
-                    item["chord_struct_pitch"], dtype=np.float32
-                )
-                y_root = np.array(item["chord_struct_root"], dtype=np.int32)
-                y_bass = np.array(item["chord_struct_bass"], dtype=np.int32)
-                yield x, (y_tag, y_pitch, y_root, y_bass)
-            else:
-                # Return only chord tags for non-structured training
-                y = np.array(item["chord_tag_chord"], dtype=np.int32)
-                yield x, y
-
-    def as_tf_dataset(self, batch_size):
-        # This function would need to be updated too but isn't used in the fit() call
-        pass
 
 
 def process_arguments(args):
@@ -439,10 +384,6 @@ def weight_tracks(refs, tracks, *args, **kwargs):
 
 
 def construct_model(pump, structured):
-
-    # Now none of the keys should contain '/' anymore,
-    # so pumpp will create Input layers with slash-free names.
-
     # Build the input layer
     INPUTS = (
         "cqt_mag"  # (matching whatever your rename_slashes_in_dict generated)
@@ -558,85 +499,6 @@ def make_output_path(
     return outdir
 
 
-def round_observation_times(annotation, precision=10, snap_tol=1e-6):
-    """
-    Create new Observation objects with times and durations rounded using Decimal
-    arithmetic, then force them to be consecutive by snapping boundaries that are
-    within snap_tol.
-
-    Args:
-        annotation (JAMS Annotation): A JAMS-style chord annotation with Observation objects.
-        precision (int): Decimal places to round to.
-        snap_tol (float): Tolerance under which boundaries are forced equal.
-
-    Returns:
-        JAMS Annotation: The adjusted annotation.
-    """
-
-    # Define quantizer string and quant
-    quant_str = "1." + "0" * precision
-    quant = Decimal(quant_str)
-
-    # First pass: convert observation times/durations to Decimal.
-    obs_list = []
-    for obs in annotation.data:
-        rt = Decimal(str(obs.time)).quantize(quant, rounding=ROUND_HALF_UP)
-        rd = Decimal(str(obs.duration)).quantize(quant, rounding=ROUND_HALF_UP)
-        obs_list.append((rt, rd, obs.value, obs.confidence))
-
-    # Sort by start time.
-    obs_list.sort(key=lambda tup: tup[0])
-
-    # Second pass: force consecutive intervals.
-    fixed = []
-    # Start with the first observation.
-    prev_start, prev_dur, val, conf = obs_list[0]
-    prev_end = prev_start + prev_dur
-    fixed.append((prev_start, prev_dur, val, conf))
-
-    for current in obs_list[1:]:
-        current_start, current_dur, val, conf = current
-        # Force the current observation to start at prev_end
-        new_start = prev_end
-        # Calculate original end of current observation.
-        current_end = current_start + current_dur
-        # New duration is calculated as difference.
-        new_dur = current_end - new_start
-        if new_dur < Decimal("0"):
-            new_dur = Decimal("0")
-        fixed.append((new_start, new_dur, val, conf))
-        prev_end = new_start + new_dur  # update end
-
-    # Convert fixed intervals back to floats with snapping.
-    fixed_obs = []
-    # We'll build the new observations, and whenever the gap is below snap_tol, snap them.
-    prev_end_float = None
-    for start, dur, val, conf in fixed:
-        start_float = float(start)
-        dur_float = float(dur)
-        end_float = start_float + dur_float
-        if (
-            prev_end_float is not None
-            and abs(start_float - prev_end_float) < snap_tol
-        ):
-            # snap start exactly to previous end.
-            start_float = prev_end_float
-            # Adjust duration based on the original end.
-            end_float = float(start + dur)
-            dur_float = max(0, end_float - start_float)
-        obs_new = jams.Observation(
-            time=start_float,
-            duration=dur_float,
-            value=val,
-            confidence=conf,
-        )
-        fixed_obs.append(obs_new)
-        prev_end_float = start_float + dur_float
-
-    annotation.data = fixed_obs
-    return annotation
-
-
 def score_model(pump, model, idx, working, refs, structured):
 
     results = {}
@@ -650,58 +512,12 @@ def score_model(pump, model, idx, working, refs, structured):
 
         ann = pump["chord_tag"].inverse(output)
         ann = round_observation_times(ann)
-
-        ref_ann = round_observation_times(
-            jam.annotations["chord", 0], precision=10
-        )
-
+        ref_ann = round_observation_times(jam.annotations["chord", 0])
         results[item] = jams.eval.chord(ref_ann, ann)
 
     return pd.DataFrame.from_dict(results, orient="index")[
         ["root", "thirds", "triads", "tetrads", "mirex", "majmin", "sevenths"]
     ]
-
-
-## NEW CODE
-
-
-def rename_slashes_in_op_fields(op):
-    """
-    In-place rename of all slash-laden keys inside op.fields
-    so that the new keys replace '/' with '_'.
-    """
-    # Must check that op.fields is actually a mutable dict
-    if hasattr(op, "fields") and isinstance(op.fields, dict):
-        new_dict = {}
-        for old_key, old_val in op.fields.items():
-            new_key = old_key.replace("/", "_")  # e.g. 'cqt/mag' -> 'cqt_mag'
-            new_dict[new_key] = old_val
-        # Now overwrite op.fields with slash-free keys
-        op.fields = new_dict
-
-
-def rename_slashes_in_pump_opmap(pump):
-    """
-    Go through pump.opmap, rename slash-based keys in each operator's fields.
-    """
-    for op_name, op in pump.opmap.items():
-        # rename slashes in the operator's .fields
-        rename_slashes_in_op_fields(op)
-
-        # If you also need to rename the op_name itself if it had a slash,
-        # do it here (though 'chord_struct', 'chord_tag', 'cqt' do not have slashes):
-        # new_op_name = op_name.replace('/', '_')
-        # if new_op_name != op_name:
-        #     pump.opmap[new_op_name] = op
-        #     del pump.opmap[op_name]
-
-
-def rename_slashes_in_pump_ops_list(pump):
-    """
-    pump.ops is a list of the same operators, rename slash-based keys in each.
-    """
-    for op in pump.ops:
-        rename_slashes_in_op_fields(op)
 
 
 def run_experiment(
@@ -794,7 +610,7 @@ def run_experiment(
 
         # Load the training data
         idx_train_ = pd.read_csv(
-            os.path.join(working, "jazznet_train{:02d}.csv".format(split)),
+            os.path.join(working, "train{:02d}.csv".format(split)),
             header=None,
             names=["id"],
         )
@@ -944,7 +760,7 @@ def run_experiment(
 
         # Load the testing data
         idx_test = pd.read_csv(
-            os.path.join(working, "jazznet_test{:02d}.csv".format(split)),
+            os.path.join(working, "test{:02d}.csv".format(split)),
             header=None,
             names=["id"],
         )

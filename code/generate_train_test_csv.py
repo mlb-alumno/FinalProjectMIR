@@ -22,12 +22,6 @@ def main():
         help="Path to save the generated CSV files.",
     )
     parser.add_argument(
-        "--name",
-        type=str,
-        required=True,
-        help="Base name for the output CSV files.",
-    )
-    parser.add_argument(
         "--splits",
         type=int,
         required=True,
@@ -46,7 +40,6 @@ def main():
 
     folder = args.folder
     output_path = args.output_path
-    base_name = args.name
     splits = args.splits
     train_ratio = args.train_ratio
     file_names = []
@@ -80,15 +73,13 @@ def main():
 
         # Save train set to CSV
         train_df = pd.DataFrame(train_files)
-        train_csv_path = os.path.join(
-            output_path, f"{base_name}_train0{i}.csv"
-        )
+        train_csv_path = os.path.join(output_path, f"train0{i}.csv")
         train_df.to_csv(train_csv_path, index=False, header=False)
         print(f"Training CSV saved as {train_csv_path}")
 
         # Save test set to CSV
         test_df = pd.DataFrame(test_files)
-        test_csv_path = os.path.join(output_path, f"{base_name}_test0{i}.csv")
+        test_csv_path = os.path.join(output_path, f"test0{i}.csv")
         test_df.to_csv(test_csv_path, index=False, header=False)
         print(f"Test CSV saved as {test_csv_path}")
 
