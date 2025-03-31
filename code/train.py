@@ -181,8 +181,6 @@ def make_sampler_func(max_samples, duration, pump, seed):
     """
     Return a function that, given a data dict, yields samples.
     """
-    # Suppose pump.sampler(...) returns an object that
-    # we can call with the data dictionary.
     sampler_object = pump.sampler(max_samples, duration, random_state=seed)
 
     def sampler_func(data):
@@ -213,7 +211,7 @@ def data_generator(
     augmentation=False,
     weights=None,
     rate=5,  # example default for 'rate' param
-    dist="poisson",  # or 'poisson', 'constant', etc.
+    dist="poisson",  # 'poisson', 'constant', etc.
     mode="with_replacement",
     prune_empty_streams=True,
     random_state=None,
@@ -247,7 +245,7 @@ def data_generator(
     if not pool_weights:
         pool_weights = None
     else:
-        # Must match length of seeds
+        # This must match length of seeds
         pool_weights = list(pool_weights)
 
     # Set up the StochasticMux (the old Mux had 'k' active streams, etc.)
@@ -263,7 +261,6 @@ def data_generator(
     )
 
     # Produce the raw item-level generator
-    # mux_gen = mux.iterate(max_iter=max_iter)
 
     input_shape = (None, 216, 1)
     output_shape = (None,)
@@ -285,7 +282,7 @@ def keras_tuples(gen, inputs=None, outputs=None):
     Yields:
         Tuples (x, y) for training in Keras.
     """
-    for x, y in gen:  # ✅ Unpacking tuple directly
+    for x, y in gen:  
         yield (x, y)
 
 
@@ -386,7 +383,7 @@ def weight_tracks(refs, tracks, *args, **kwargs):
 def construct_model(pump, structured):
     # Build the input layer
     INPUTS = (
-        "cqt_mag"  # (matching whatever your rename_slashes_in_dict generated)
+        "cqt_mag"  # (matching what rename_slashes_in_dict generated)
     )
     x = pump.layers()[INPUTS]
 
