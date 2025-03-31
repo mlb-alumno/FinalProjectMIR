@@ -73,6 +73,8 @@ Just to test if it runs, then turn up the epochs and epoch size for real trainin
 
 ## Inference 
 
+The `notebooks/Training_results.ipynb` and `notebooks/Test_results.ipynb` notebooks contain the results of the training and testing.
+
 Run the ``notebooks/Predict_new_sound.ipynb`` notebook. This will do inference on an example.
 
 ## References
